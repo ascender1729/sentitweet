@@ -1,4 +1,5 @@
 # SentiTweet: Advanced Sentiment Analysis Tool
+![SentiTweet Logo](https://github.com/ascender1729/sentitweet/blob/main/sentitweet_ss.jpg)
 
 SentiTweet is a powerful sentiment analysis tool that leverages AWS Comprehend and TextBlob to analyze the sentiment of text inputs. It provides both a command-line interface and a web application for flexible usage, making it easy to understand the emotional tone of text data.
 
