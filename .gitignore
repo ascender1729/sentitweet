@@ -21,6 +21,7 @@ wheels/
 *.egg
 
 # Virtual Environment
+new_sentitweet_env/
 venv/
 env/
 ENV/
@@ -43,3 +44,4 @@ Thumbs.db
 sentiment_results.csv
 visualizations/
 output.csv
+input.csv
