@@ -61,7 +61,7 @@ SentiTweet is a powerful sentiment analysis tool that leverages AWS Comprehend a
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/sentitweet.git
+   git clone https://github.com/ascender1729/sentitweet.git
    cd sentitweet
    ```
 
