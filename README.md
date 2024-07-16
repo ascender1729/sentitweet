@@ -1,5 +1,22 @@
 # SentiTweet: Advanced Sentiment Analysis Tool
+```
 
+
+ ____                   __        ______                           __      
+/\  _`\                /\ \__  __/\__  _\                         /\ \__   
+\ \,\L\_\     __    ___\ \ ,_\/\_\/_/\ \/ __  __  __     __     __\ \ ,_\  
+ \/_\__ \   /'__`\/' _ `\ \ \/\/\ \ \ \ \/\ \/\ \/\ \  /'__`\ /'__`\ \ \/  
+   /\ \L\ \/\  __//\ \/\ \ \ \_\ \ \ \ \ \ \ \_/ \_/ \/\  __//\  __/\ \ \_ 
+   \ `\____\ \____\ \_\ \_\ \__\\ \_\ \ \_\ \___x___/'\ \____\ \____\\ \__\
+    \/_____/\/____/\/_/\/_/\/__/ \/_/  \/_/\/__//__/   \/____/\/____/ \/__/
+
+
+Welcome to SentiTweet - Advanced Sentiment Analysis Tool!
+Version: 0.1.0
+Created by: Pavan Kumar
+Analyzing sentiments with the power of AWS Comprehend and TextBlob!
+
+```
 SentiTweet is a powerful sentiment analysis tool that leverages AWS Comprehend and TextBlob to analyze the sentiment of text inputs. It provides both a command-line interface and a web application for flexible usage, making it easy to understand the emotional tone of text data.
 
 ## Table of Contents
