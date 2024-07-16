@@ -1,14 +1,65 @@
-from flask import Flask, request, render_template_string, jsonify
+from flask import Flask, request, render_template_string, jsonify, send_file
 from src.sentiment_analyzer import analyze_sentiment
+import pandas as pd
 import logging
-import random
+import io
+import base64
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.DEBUG)
 
-@app.route('/', methods=['GET'])
+
+@app.route('/', methods=['GET', 'POST'])
 def index():
-    return render_template_string('''
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            return 'No file part'
+        file = request.files['file']
+        if file.filename == '':
+            return 'No selected file'
+        if file and file.filename.endswith('.csv'):
+            try:
+                # Try UTF-8 first
+                df = pd.read_csv(file)
+            except UnicodeDecodeError:
+                # If UTF-8 fails, try other encodings
+                try:
+                    file.seek(0)  # Reset file pointer
+                    df = pd.read_csv(file, encoding='iso-8859-1')
+                except Exception as e:
+                    return f"Error reading the CSV file: {str(e)}"
+            
+            start_row = int(request.form.get('start_row', 0))
+            end_row = int(request.form.get('end_row', len(df)))
+            text_column = request.form.get('text_column', 'text')
+            
+            if text_column not in df.columns:
+                return f"Column '{text_column}' not found in the CSV file. Available columns are: {', '.join(df.columns)}"
+            
+            df = df.iloc[start_row:end_row]
+            results = []
+            for text in df[text_column]:
+                try:
+                    result = analyze_sentiment(text)
+                    results.append(result)
+                except Exception as e:
+                    app.logger.error(f"Error analyzing text: {text}. Error: {str(e)}")
+                    results.append({"error": str(e)})
+            
+            results_df = pd.DataFrame(results)
+            
+            # Generate visualizations
+            try:
+                visualizations = generate_visualizations(results_df)
+            except Exception as e:
+                app.logger.error(f"Error generating visualizations: {str(e)}")
+                visualizations = {}
+            
+            return render_results(results_df, visualizations)
+    
+    return render_template_string(''' 
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -61,7 +112,7 @@ def index():
                 background-color: #4a90e2;
                 border-radius: 20px;
             }
-            #tweet-form {
+            #tweet-form, #csv-form {
                 background-color: #ffffff;
                 padding: 30px;
                 border-radius: 15px;
@@ -88,40 +139,75 @@ def index():
                 50% { transform: scale(1.05); }
                 100% { transform: scale(1); }
             }
-                                          #tweet-input {
-            min-height: 100px; /* Increased height for longer inputs */
-            resize: vertical;
+            #tweet-input {
+                min-height: 100px;
+                resize: vertical;
+            }
         </style>
     </head>
     <body>
-    <nav class="navbar navbar-dark bg-primary">
-        <div class="container">
-            <span class="navbar-brand mb-0 h1">SentiTweet Advanced Dashboard</span>
-        </div>
-    </nav>
-    <div class="container mt-5">
-        <div class="row justify-content-center">
-            <div class="col-lg-8">
-                <form id="tweet-form" class="mb-4">
-                    <div class="mb-3">
-                        <textarea id="tweet-input" class="form-control" rows="4" placeholder="Enter your text here (no character limit)"></textarea>
-                        <div id="char-count" class="text-muted mt-2"></div>
-                    </div>
-                    <div class="text-center">
-                        <button type="submit" class="btn btn-primary me-2">
-                            <i class="fas fa-search"></i> Analyze
-                        </button>
-                        <button type="button" id="paste-btn" class="btn btn-secondary">
-                            <i class="fas fa-paste"></i> Paste
-                        </button>
-                    </div>
-                </form>
+        <nav class="navbar navbar-dark bg-primary">
+            <div class="container">
+                <span class="navbar-brand mb-0 h1">SentiTweet Advanced Dashboard</span>
             </div>
-        </div>
-        <div id="results" class="row" style="display: none;">
+        </nav>
+        <div class="container mt-5">
+            <div class="row justify-content-center">
+                <div class="col-lg-8">
+                    <ul class="nav nav-tabs" id="myTab" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="single-tab" data-bs-toggle="tab" data-bs-target="#single" type="button" role="tab" aria-controls="single" aria-selected="true">Single Text Analysis</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="csv-tab" data-bs-toggle="tab" data-bs-target="#csv" type="button" role="tab" aria-controls="csv" aria-selected="false">CSV Analysis</button>
+                        </li>
+                    </ul>
+                    <div class="tab-content" id="myTabContent">
+                        <div class="tab-pane fade show active" id="single" role="tabpanel" aria-labelledby="single-tab">
+                            <form id="tweet-form" class="mb-4">
+                                <div class="mb-3">
+                                    <textarea id="tweet-input" class="form-control" rows="4" placeholder="Enter your text here (no character limit)"></textarea>
+                                    <div id="char-count" class="text-muted mt-2"></div>
+                                </div>
+                                <div class="text-center">
+                                    <button type="submit" class="btn btn-primary me-2">
+                                        <i class="fas fa-search"></i> Analyze
+                                    </button>
+                                    <button type="button" id="paste-btn" class="btn btn-secondary">
+                                        <i class="fas fa-paste"></i> Paste
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                        <div class="tab-pane fade" id="csv" role="tabpanel" aria-labelledby="csv-tab">
+                            <form id="csv-form" class="mb-4" enctype="multipart/form-data">
+                                <div class="mb-3">
+                                    <label for="file" class="form-label">Upload CSV file:</label>
+                                    <input type="file" class="form-control" id="file" name="file" accept=".csv" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="text_column" class="form-label">Text column name:</label>
+                                    <input type="text" class="form-control" id="text_column" name="text_column" value="text">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="start_row" class="form-label">Start row:</label>
+                                    <input type="number" class="form-control" id="start_row" name="start_row" value="0" min="0">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="end_row" class="form-label">End row:</label>
+                                    <input type="number" class="form-control" id="end_row" name="end_row" min="1">
+                                </div>
+                                <button type="submit" class="btn btn-primary">Analyze CSV</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="results" class="row" style="display: none;">
                 <!-- Results will be dynamically inserted here -->
             </div>
         </div>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
         <script>
             const form = document.getElementById('tweet-form');
             const results = document.getElementById('results');
@@ -234,7 +320,7 @@ def index():
                     <div class="col-md-6 mb-4">
                         <div class="dashboard-card">
                             <div class="card-header">
-                                <i class="fas fa-info-circle"></i> Tweet Stats
+                                <i class="fas fa-info-circle"></i> Text Stats
                             </div>
                             <div class="card-body">
                                 <div class="row">
@@ -250,16 +336,6 @@ def index():
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-6 mb-4">
-                        <div class="dashboard-card">
-                            <div class="card-header">
-                                <i class="fas fa-text-width"></i> Tweet Length Distribution
-                            </div>
-                            <div class="card-body">
-                                <canvas id="tweet-length-chart"></canvas>
-                            </div>
-                        </div>
-                    </div>
                 `;
                 updateCharts(data);
                 animateResults();
@@ -268,7 +344,6 @@ def index():
             function updateCharts(data) {
                 updateSentimentChart(data.aws_scores);
                 updateSentimentComparisonChart(data);
-                updateTweetLengthChart(data);
             }
 
             function updateSentimentChart(scores) {
@@ -281,12 +356,6 @@ def index():
                         datasets: [{
                             label: 'AWS Sentiment Scores',
                             data: Object.values(scores),
-                            backgroundColor: [
-                                'rgba(75, 192, 192, 0.6)',
-                                'rgba(255, 99, 132, 0.6)',
-                                'rgba(54, 162, 235, 0.6)',
-                                'rgba(255, 206, 86, 0.6)'
-                            ],
                             borderColor: [
                                 'rgba(75, 192, 192, 1)',
                                 'rgba(255, 99, 132, 1)',
@@ -361,64 +430,6 @@ def index():
                 });
             }
 
-function updateTweetLengthChart(data) {
-    const ctx = document.getElementById('tweet-length-chart').getContext('2d');
-    if (charts.tweetLength) charts.tweetLength.destroy();
-    
-    // Generate mock data for tweet length distribution
-    const mockData = generateMockTweetLengthData(data.char_count);
-    
-    charts.tweetLength = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: mockData.labels,
-            datasets: [{
-                label: 'Tweet Length Distribution',
-                data: mockData.data,
-                backgroundColor: 'rgba(75, 192, 192, 0.6)',
-                borderColor: 'rgba(75, 192, 192, 1)',
-                borderWidth: 1
-            }]
-        },
-        options: {
-            scales: {
-                x: {
-                    title: {
-                        display: true,
-                        text: 'Character Count'
-                    }
-                },
-                y: {
-                    beginAtZero: true,
-                    title: {
-                        display: true,
-                        text: 'Frequency'
-                    }
-                }
-            },
-            animation: {
-                duration: 1500,
-                easing: 'easeOutQuart'
-            }
-        }
-    });
-}
-
-function generateMockTweetLengthData(currentTweetLength) {
-    const maxLength = Math.max(280, currentTweetLength);
-    const binSize = Math.ceil(maxLength / 20);
-    const labels = [];
-    const data = [];
-    for (let i = 0; i <= maxLength; i += binSize) {
-        labels.push(i);
-        data.push(Math.random() * 100);
-    }
-    // Ensure the current tweet length has a higher value
-    const index = Math.floor(currentTweetLength / binSize);
-    data[index] = Math.max(...data) + 20;
-    return { labels, data };
-}
-
             function animateResults() {
                 anime({
                     targets: '.dashboard-card',
@@ -442,8 +453,8 @@ function generateMockTweetLengthData(currentTweetLength) {
             tweetInput.parentNode.insertBefore(charCount, tweetInput.nextSibling);
 
             tweetInput.addEventListener('input', function() {
-    charCount.textContent = `${this.value.length} characters`;
-});
+                charCount.textContent = `${this.value.length} characters`;
+            });
 
             // Add a feature to save analysis results
             const saveButton = document.createElement('button');
@@ -512,6 +523,28 @@ function generateMockTweetLengthData(currentTweetLength) {
                 }
             `;
             document.head.appendChild(style);
+
+            // Add event listener for CSV form
+            document.getElementById('csv-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                try {
+                    const response = await fetch('/', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const result = await response.text();
+                    document.getElementById('results').innerHTML = result;
+                    document.getElementById('results').style.display = 'block';
+                } catch (error) {
+                    console.error("Error:", error);
+                    document.getElementById('results').innerHTML = `<p>Error: ${error.message}</p>`;
+                    document.getElementById('results').style.display = 'block';
+                }
+            });
         </script>
     </body>
     </html>
@@ -531,5 +564,65 @@ def analyze():
         app.logger.error(f"Error during analysis: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+def generate_visualizations(df):
+    visualizations = {}
+    
+    try:
+        # AWS Sentiment Distribution
+        plt.figure(figsize=(10, 6))
+        df['aws_sentiment'].value_counts().plot(kind='pie', autopct='%1.1f%%')
+        plt.title('AWS Sentiment Distribution')
+        img = io.BytesIO()
+        plt.savefig(img, format='png')
+        img.seek(0)
+        visualizations['aws_sentiment'] = base64.b64encode(img.getvalue()).decode()
+        plt.close()
+    except Exception as e:
+        app.logger.error(f"Error generating AWS Sentiment Distribution: {str(e)}")
+    
+    try:
+        # Sentiment Scores Distribution
+        plt.figure(figsize=(12, 6))
+        scores = pd.DataFrame(df['aws_scores'].tolist(), index=df.index)
+        sns.boxplot(data=scores)
+        plt.title('Distribution of AWS Sentiment Scores')
+        img = io.BytesIO()
+        plt.savefig(img, format='png')
+        img.seek(0)
+        visualizations['sentiment_scores'] = base64.b64encode(img.getvalue()).decode()
+        plt.close()
+    except Exception as e:
+        app.logger.error(f"Error generating Sentiment Scores Distribution: {str(e)}")
+    
+    return visualizations
+
+def render_results(df, visualizations):
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>SentiTweet - Analysis Results</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    </head>
+    <body>
+        <div class="container mt-5">
+            <h1>Analysis Results</h1>
+            <h2>Visualizations</h2>
+            {% for name, img_data in visualizations.items() %}
+                <h3>{{ name }}</h3>
+                <img src="data:image/png;base64,{{ img_data }}" alt="{{ name }}" class="img-fluid">
+            {% endfor %}
+            <h2>Raw Data</h2>
+            {{ df.to_html(classes="table table-striped") | safe }}
+        </div>
+    </body>
+    </html>
+    ''', df=df, visualizations=visualizations)
+
 def run_web_app():
     app.run(debug=True)
+
+if __name__ == '__main__':
+    run_web_app()
