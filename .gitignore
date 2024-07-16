@@ -41,3 +41,5 @@ Thumbs.db
 # Project specific
 *.log
 sentiment_results.csv
+visualizations/
+output.csv
